@@ -20,8 +20,7 @@ fi
 echo "############################################################"
 echo "Build image"
 echo "############################################################"
-oc apply -f k8s/git-auth-repo-sonarqube.yaml
-oc new-build . --name=sonarqube --strategy=docker -l "app=sonarqube" --to="image-registry.openshift-image-registry.svc:5000/sonarqube/sonarqube:10.6.0.92116" --source-secret git-auth-repo-sonarqube
+oc new-build . --name=sonarqube --strategy=docker -l "app=sonarqube" --to="image-registry.openshift-image-registry.svc:5000/sonarqube/sonarqube:10.6.0.92116"
 sleep 3
 oc logs -f bc/sonarqube
 echo ""
