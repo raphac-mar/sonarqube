@@ -1,0 +1,67 @@
+FROM image-registry.openshift-image-registry.svc:5000/openshift/ubi8-openjdk-17:1.17
+
+LABEL org.opencontainers.image.url=https://github.com/SonarSource/docker-sonarqube
+
+ENV LANG='en_US.UTF-8' \
+    LANGUAGE='en_US:en' \
+    LC_ALL='en_US.UTF-8'
+
+#
+# SonarQube setup
+#
+ARG SONARQUBE_VERSION=10.6.0.92116
+ARG SONARQUBE_ZIP_URL=https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-${SONARQUBE_VERSION}.zip
+ENV DOCKER_RUNNING="true" \
+    #JAVA_HOME='/opt/java/openjdk' \
+    JAVA_HOME='/usr/lib/jvm/java-17' \
+    SONARQUBE_HOME=/opt/sonarqube \
+    SONAR_VERSION="${SONARQUBE_VERSION}" \
+    SQ_DATA_DIR="/opt/sonarqube/data" \
+    SQ_EXTENSIONS_DIR="/opt/sonarqube/extensions" \
+    SQ_LOGS_DIR="/opt/sonarqube/logs" \
+    SQ_TEMP_DIR="/opt/sonarqube/temp"
+
+USER root
+
+RUN set -eux; \
+    microdnf install glibc-langpack-en; sed -i 's/^LANG=.*/LANG="en_US.utf8"/' /etc/locale.conf; \
+    useradd --system --uid 1000 --gid 0 sonarqube; \
+    #apt-get update; \
+    #apt-get --no-install-recommends -y install gnupg unzip curl bash fonts-dejavu; \
+    microdnf -y install unzip wget; \
+    mkdir -p ${JAVA_HOME}/conf/security; \
+    echo "networkaddress.cache.ttl=5" >> "${JAVA_HOME}/conf/security/java.security"; \
+    sed --in-place --expression="s?securerandom.source=file:/dev/random?securerandom.source=file:/dev/urandom?g" "${JAVA_HOME}/conf/security/java.security"; \
+    # pub   2048R/D26468DE 2015-05-25
+    #       Key fingerprint = F118 2E81 C792 9289 21DB  CAB4 CFCA 4A29 D264 68DE
+    # uid                  sonarsource_deployer (Sonarsource Deployer) <infra@sonarsource.com>
+    # sub   2048R/06855C1D 2015-05-25
+    for server in $(shuf -e hkps://keys.openpgp.org \
+                            hkps://keyserver.ubuntu.com) ; do \
+        gpg --batch --keyserver "${server}" --recv-keys 679F1EE92B19609DE816FDE81DB198F93525EC1A && break || : ; \
+    done; \
+    mkdir --parents /opt; \
+    cd /opt; \
+    curl --fail --location --output sonarqube.zip --silent --show-error "${SONARQUBE_ZIP_URL}"; \
+    curl --fail --location --output sonarqube.zip.asc --silent --show-error "${SONARQUBE_ZIP_URL}.asc"; \
+    gpg --batch --verify sonarqube.zip.asc sonarqube.zip; \
+    unzip -q sonarqube.zip; \
+    mv "sonarqube-${SONARQUBE_VERSION}" sonarqube; \
+    rm sonarqube.zip*; \
+    rm -rf ${SONARQUBE_HOME}/bin/*; \
+    ln -s "${SONARQUBE_HOME}/lib/sonar-application-${SONARQUBE_VERSION}.jar" "${SONARQUBE_HOME}/lib/sonarqube.jar"; \
+    chmod -R 550 ${SONARQUBE_HOME}; \
+    chmod -R 770 "${SQ_DATA_DIR}" "${SQ_EXTENSIONS_DIR}" "${SQ_LOGS_DIR}" "${SQ_TEMP_DIR}"; \
+    #apt-get remove -y gnupg unzip; \
+    rm -rf /var/lib/apt/lists/*;
+
+COPY entrypoint.sh ${SONARQUBE_HOME}/docker/
+RUN ["chmod", "777", "/opt/sonarqube/docker/entrypoint.sh"]
+
+WORKDIR ${SONARQUBE_HOME}
+EXPOSE 9000
+
+USER sonarqube
+STOPSIGNAL SIGINT
+
+ENTRYPOINT ["/opt/sonarqube/docker/entrypoint.sh"]

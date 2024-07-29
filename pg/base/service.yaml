@@ -1,0 +1,15 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: postgresql
+  labels:
+    app: postgresql
+spec:
+  ports:
+    - name: 5432-tcp
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+  selector:
+    deployment: postgresql

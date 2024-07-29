@@ -1,0 +1,102 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: sonarqube
+  labels:
+    app: sonarqube
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+        deployment: sonarqube
+    spec:
+      securityContext:
+        fsGroup: 0
+      volumes:
+        - name: sonarqube
+          persistentVolumeClaim:
+            claimName: sonarqube-pvc
+        - name: tmp-dir
+          emptyDir: {}
+      containers:
+        - name: sonarqube
+          image: "image-registry.openshift-image-registry.svc:5000/sonarqube/sonarqube:10.6.0.92116"
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          env:
+            - name: SONAR_JDBC_URL
+              value: jdbc:postgresql://postgresql.sonarqube.svc.cluster.local/sonar
+            - name: SONAR_JDBC_USERNAME
+              value: sonar
+            - name: SONAR_JDBC_PASSWORD
+              value: sonar
+            - name: SONAR_WEB_CONTEXT
+              value: /
+            - name: SONAR_WEB_SYSTEMPASSCODE
+              value: sonar
+            - name: SONAR_WEB_JAVAOPTS
+            - name: SONAR_CE_JAVAOPTS
+          volumeMounts:
+            - name: sonarqube
+              mountPath: /opt/sonarqube/data
+              subPath: data
+            - name: sonarqube
+              mountPath: /opt/sonarqube/temp
+              subPath: temp
+            - name: sonarqube
+              mountPath: /opt/sonarqube/logs
+              subPath: logs
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: sonarqube
+              mountPath: /opt/sonarqube/extensions
+              subPath: extensions
+          startupProbe:
+            httpGet:
+              path: /api/system/status
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - "-c"
+                - |
+                  #!/bin/bash
+                  # A Sonarqube container is considered ready if the status is UP, DB_MIGRATION_NEEDED or DB_MIGRATION_RUNNING
+                  # status about migration are added to prevent the node to be kill while sonarqube is upgrading the database.
+                  if wget --no-proxy -qO- http://localhost:9000/api/system/status | grep -q -e '"status":"UP"' -e '"status":"DB_MIGRATION_NEEDED"' -e '"status":"DB_MIGRATION_RUNNING"'; then
+                    exit 0
+                  fi
+                  exit 1
+            initialDelaySeconds: 60
+            timeoutSeconds: 1
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - "-c"
+                - |
+                  wget --no-proxy --quiet -O /dev/null --timeout=1 --header="X-Sonar-Passcode: $SONAR_WEB_SYSTEMPASSCODE" "http://localhost:9000/api/system/liveness"
+            initialDelaySeconds: 60
+            timeoutSeconds: 1
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 6
+  strategy:
+    type: Recreate
